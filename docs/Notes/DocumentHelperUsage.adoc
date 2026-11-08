@@ -1,0 +1,46 @@
+= DocumentHelper: Build and Use
+
+== Requirements
+
+* JDK 21 and Maven.
+* Graphviz installed on Windows, with `dot.exe` available on `PATH` (or configured using the Graphviz/PlantUML environment settings).
+* Trusted local AsciiDoc documents. The renderer enables includes and diagram processing; it is not a sandbox for untrusted input.
+
+== Build and launch
+
+From the repository root:
+
+[source,console]
+----
+cd src/Java/DocumentHelperApp
+mvn package
+java -jar target/DocumentHelper.jar
+----
+
+The Maven project and its sources are located in `src/Java/DocumentHelperApp`.
+Keep that project's `target/DocumentHelper.jar` and `target/lib/` together when copying the application.
+Dependencies remain separate JARs to preserve the JRuby and RubyGem resources without shading them.
+A Windows installer, bundled runtime, and bundled Graphviz are not included in this first version.
+
+== Generate documents
+
+. Browse to an `.adoc` or `.asciidoc` document, or type its path.
+. Browse to an output folder, or type a folder path to create during generation.
+. Leave HTML and PDF selected, or deselect a format.
+. Click *Generate Document*.
+
+Output names use the source basename with `.html` and `.pdf` extensions.
+Existing outputs require confirmation before replacement.
+Generation runs in the background and reports diagnostics when finished.
+If one format fails after the other succeeds, the completed file remains in the output folder.
+
+Reference PlantUML files from the AsciiDoc document, for example:
+
+[source,asciidoc]
+----
+plantuml::diagrams/example.puml[format=svg]
+----
+
+Image embedding and embedded CSS are enabled for HTML, and default webfonts are disabled.
+Custom document content that references remote scripts, fonts, or styles may still need adjustment for completely offline delivery.
+The CLI is an interface stub only and has no launcher or parser implementation.
