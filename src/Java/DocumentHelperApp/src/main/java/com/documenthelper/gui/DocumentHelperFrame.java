@@ -77,6 +77,7 @@ public final class DocumentHelperFrame extends JFrame {
 
     private void chooseDocument() {
         JFileChooser chooser = new JFileChooser();
+        setInitialDirectory(chooser, document.getText());
         chooser.setDialogTitle("Select input document");
         chooser.setFileFilter(new FileNameExtensionFilter("AsciiDoc documents (*.adoc, *.asciidoc)", "adoc", "asciidoc"));
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
@@ -90,10 +91,25 @@ public final class DocumentHelperFrame extends JFrame {
 
     private void chooseOutput() {
         JFileChooser chooser = new JFileChooser();
+        setInitialDirectory(chooser, output.getText());
         chooser.setDialogTitle("Select output folder");
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             output.setText(chooser.getSelectedFile().getAbsolutePath());
+        }
+    }
+
+    private static void setInitialDirectory(JFileChooser chooser, String currentPath) {
+        if (currentPath.isBlank()) return;
+        try {
+            Path directory = Path.of(currentPath.strip()).toAbsolutePath().normalize();
+            // For an input file or a not-yet-created output folder, use its nearest existing parent.
+            while (directory != null && !Files.isDirectory(directory)) {
+                directory = directory.getParent();
+            }
+            if (directory != null) chooser.setCurrentDirectory(directory.toFile());
+        } catch (java.nio.file.InvalidPathException ignored) {
+            // A partially typed path should not prevent browsing from the default folder.
         }
     }
 

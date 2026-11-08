@@ -1,6 +1,50 @@
 = Worklog
 :allow-uri-read:
 
+== 08/11/2026 - Java DocumentHelper application
+
+I reflected on the architecture of a local Windows application and decided to use Java 21 LTS, Maven, Swing, and AsciidoctorJ.
+I want to start by generating HTML and PDF from one AsciiDoc entry document referencing PlantUML files, while leaving room for other functionality later.
+I chose PlantUML with Graphviz and a self-contained HTML file with embedded images and CSS to simplify delivery.
+I do not need a preview. I also decided to keep the CLI as an interface stub for now and think about its implementation and parser later.
+
+Created the Maven application in `src/Java/DocumentHelperApp` with:
+
+* One Swing screen containing input document and output-folder selectors, HTML and PDF checkboxes selected by default, and a *Generate Document* button.
+* A shared conversion service integrating AsciidoctorJ, PDF generation, and Asciidoctor Diagram with PlantUML.
+* Background generation, input validation, overwrite confirmation, and result/error diagnostics.
+* Temporary rendering files and diagram cache outside the source directory, with cleanup after conversion.
+* A runnable JAR manifest and runtime dependencies copied into `target/lib` during packaging.
+* Conversion tests covering HTML/PDF generation, relative includes and image paths, PlantUML diagrams, image embedding, offline font configuration, and invalid requests.
+
+Fixed several dependency, API, and test issues encountered during the first Maven builds:
+
+* Replaced the unavailable `asciidoctorj-pdf:2.3.26` artifact with published version `2.3.23`.
+* Updated conversion options to use the AsciidoctorJ 3 `Attributes` builder.
+* Removed an invalid explicit PlantUML Ruby library loading call; Asciidoctor Diagram loads the packaged PlantUML classpath integration automatically.
+* Disabled webfonts, icons, and linked CSS through API attribute values.
+* Corrected the offline-font assertion to ignore the commented Google Fonts import in Asciidoctor's bundled CSS while still rejecting active references.
+
+Ran the Maven builds and tests locally and confirmed that the application works.
+This version requires Java 21 and Graphviz installed on the machine.
+Bundling the runtime, Graphviz, and a Windows installer remains future work.
+
+Build and launch from the repository root:
+
+[source,powershell]
+----
+cd src\Java\DocumentHelperApp
+mvn package
+java -jar target/DocumentHelper.jar
+----
+
+Keep `target/lib` beside the generated JAR.
+
+Documentation:
+
+* link:../docs/Notes/JavaAsciidoctorApplicationArchitecture.adoc[Application architecture and decisions]
+* link:../docs/Notes/DocumentHelperUsage.adoc[Build and usage notes]
+
 == 29/09/2025 - Reactivate project
 
 
@@ -23,9 +67,10 @@ dotnet sln add .\SandboxConsole\SandboxConsole.csproj
 
 Tested
 
-[source, Cpp]
+[source,csharp]
 ----
-include::../src/CSharp/DocumentHelper/SandboxConsole/Workspace/Wrk-01-Asciidoc-to-html-and_pdf.cs[]
+
+include::../src/CSharp/DocumentationHelper/SandboxConsole/Workspace/Wrk-01-Asciidoc-to-html-and_pdf.cs[]
 ----
 
 
