@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -36,6 +37,8 @@ class DocumentGenerationServiceTest {
         var result = new DocumentGenerationService().generate(new ConversionRequest(document, output, true, true));
 
         assertEquals(2, result.files().size());
+        assertTrue(result.diagnostics().isEmpty(),
+                () -> "Successful conversion must not report debug lookups as warnings: " + result.diagnostics());
         String html = Files.readString(output.resolve("example.html"));
         assertTrue(html.contains("Included content."));
         assertTrue(html.contains("data:image/png;base64,"));
@@ -52,6 +55,29 @@ class DocumentGenerationServiceTest {
             assertEquals(2, files.count(), "Temporary rendering files should be removed.");
         }
         assertFalse(Files.exists(source.resolve(".asciidoctor")), "Diagram cache must stay outside sources.");
+    }
+
+    @Test
+    void writesSvgTextSpacingAsPdfDecimalsForAcrobat() throws Exception {
+        Files.writeString(directory.resolve("labels.svg"), """
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80">
+                  <text x="5" y="20" font-family="sans-serif" font-size="14" font-weight="bold"
+                        lengthAdjust="spacing" textLength="60.6758">PlantUml</text>
+                  <rect x="5" y="30" width="120" height="30" fill="#eeeeee" stroke="black"/>
+                  <text x="10" y="50" font-family="sans-serif" font-size="14">Visible file</text>
+                </svg>
+                """);
+        Path document = Files.writeString(directory.resolve("labels.adoc"),
+                "= SVG labels\n\nimage::labels.svg[]\n");
+        Path output = directory.resolve("output");
+        new DocumentGenerationService().generate(new ConversionRequest(document, output, false, true));
+
+        // Prawn's page content streams are uncompressed by default. Inspect the actual
+        // emitted operator: tolerant viewers can conceal invalid exponential numbers.
+        String pdf = Files.readString(output.resolve("labels.pdf"), StandardCharsets.ISO_8859_1);
+        assertTrue(Pattern.compile("(?m)^-?[0-9.]+ Tc$").matcher(pdf).find());
+        assertFalse(Pattern.compile("(?m)^[-+0-9.]+[eE][-+]?[0-9]+ T[cz]$").matcher(pdf).find(),
+                "PDF text spacing/scaling must not use scientific notation; Acrobat stops rendering the diagram.");
     }
 
     @Test

@@ -5,6 +5,7 @@ import org.asciidoctor.Asciidoctor;
 import org.asciidoctor.Attributes;
 import org.asciidoctor.Options;
 import org.asciidoctor.SafeMode;
+import org.asciidoctor.log.Severity;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -28,10 +29,16 @@ public final class DocumentGenerationService {
         List<Path> generated = new ArrayList<>();
         List<String> diagnostics = new ArrayList<>();
         try (Asciidoctor asciidoctor = Asciidoctor.Factory.create()) {
-            asciidoctor.registerLogHandler(record -> diagnostics.add(record.getSeverity() + ": " + record.getMessage()));
+            asciidoctor.registerLogHandler(record -> {
+                if (record.getSeverity() == Severity.WARN || record.getSeverity() == Severity.ERROR
+                        || record.getSeverity() == Severity.FATAL) {
+                    diagnostics.add(record.getSeverity() + ": " + record.getMessage());
+                }
+            });
             asciidoctor.requireLibrary("asciidoctor-diagram");
             if (request.pdf()) {
                 asciidoctor.requireLibrary("asciidoctor-pdf");
+                asciidoctor.requireLibrary("documenthelper/pdf_numeric_compat");
             }
             if (request.html()) {
                 convert(asciidoctor, request, work, "html5", "html", diagnostics);
