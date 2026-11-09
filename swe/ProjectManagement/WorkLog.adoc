@@ -42,8 +42,8 @@ Keep `target/lib` beside the generated JAR.
 
 Documentation:
 
-* link:../docs/Notes/JavaAsciidoctorApplicationArchitecture.adoc[Application architecture and decisions]
-* link:../docs/Notes/DocumentHelperUsage.adoc[Build and usage notes]
+* link:../../docs/Notes/JavaAsciidoctorApplicationArchitecture.adoc[Application architecture and decisions]
+* link:../../docs/Notes/DocumentHelperUsage.adoc[Build and usage notes]
 
 == 29/09/2025 - Reactivate project
 
@@ -70,7 +70,7 @@ Tested
 [source,csharp]
 ----
 
-include::../src/CSharp/DocumentationHelper/SandboxConsole/Workspace/Wrk-01-Asciidoc-to-html-and_pdf.cs[]
+include::../../src/CSharp/DocumentationHelper/SandboxConsole/Workspace/Wrk-01-Asciidoc-to-html-and_pdf.cs[]
 ----
 
 
