@@ -1,0 +1,384 @@
+= Java Asciidoctor Application Architecture and Design
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: none
+
+== Scope and source of truth
+
+This document describes the implemented Java application in `src/Java/DocumentHelperApp`, as inspected on 2026-11-09.
+It complements link:JavaAsciidoctorApplicationArchitecture.adoc[the original architecture proposal], which records earlier decisions and open choices and predates the implementation.
+Class names and interactions below describe actual code; deferred capabilities are identified explicitly.
+
+DocumentHelper is a local Swing application that converts one AsciiDoc entry document, including referenced resources and PlantUML diagrams, into HTML, PDF, or both.
+It targets Java 21 and Windows deployment, uses Maven, and has no server, database, preview window, or implemented command-line interface.
+
+== Global architecture
+
+The application is a single Maven module and a small modular monolith organized into packages.
+The desktop boundary constructs an immutable request and invokes the rendering boundary directly.
+The core request has no dependency on Swing or AsciidoctorJ.
+There is no dependency-injection container, service interface, plugin framework, or separate application-controller class.
+
+[plantuml, global-architecture, svg]
+----
+@startuml
+left to right direction
+actor User
+rectangle "DocumentHelper JVM / Java 21" {
+  component "DocumentHelper\nbootstrap" as Boot
+  component "gui\nDocumentHelperFrame\nSwingWorker" as GUI
+  component "core\nConversionRequest" as Core
+  component "rendering\nDocumentGenerationService" as Service
+  component "AsciidoctorJ / JRuby\nDiagram + PDF integrations" as Engine
+  component "cli\nCommandLineInterface\n(deferred stub)" as CLI
+  Boot --> GUI : creates on EDT
+  GUI --> Core : constructs / validates
+  GUI --> Service : background call
+  Service --> Core : reads options / paths
+  Service --> Engine : configures / converts / closes
+}
+folder "Local source files\n.adoc, includes, images, .puml" as Source
+folder "Output directory\nHTML / PDF + temporary workspace" as Output
+component "PlantUML\nvia Diagram integration" as UML
+component "Graphviz dot\nexternal executable" as Dot
+User --> GUI : select / generate
+Engine --> Source : reads relative to entry document
+Engine --> UML : render diagrams
+UML --> Dot : layouts when required
+Service --> Output : stage / replace / clean up
+@enduml
+----
+
+The CLI box has no runtime connection: `main(String[])` always starts Swing and does not dispatch arguments.
+PlantUML is supplied through the Diagram integration dependency; Graphviz remains an external executable, normally discovered through the environment.
+The service contains no explicit Graphviz installation or discovery logic.
+
+== Packages, classes, and responsibilities
+
+[cols="2,3,4",options="header"]
+|===
+|Source |Role |Responsibility
+|`com.documenthelper.DocumentHelper`
+|Application entry point
+|Schedules GUI creation on the Swing event-dispatch thread (EDT), attempts the system look and feel, and opens the frame. Falls back to the default look and feel if setup fails.
+|`gui.DocumentHelperFrame`
+|Desktop view and workflow controller
+|Owns input controls, file choosers, format selection, validation messages, overwrite confirmation, background execution, status, and result/error dialogs.
+|`core.ConversionRequest`
+|Immutable request record
+|Normalizes paths, validates input and selected formats, and derives destination filenames.
+|`rendering.DocumentGenerationService`
+|Rendering coordinator and integration boundary
+|Creates the renderer and temporary workspace, configures Ruby libraries and attributes, converts formats sequentially, collects diagnostics, publishes files, and cleans up.
+|`DocumentGenerationService.Result`
+|Immutable result record
+|Returns generated paths and diagnostic strings using defensive `List.copyOf` copies.
+|`cli.CommandLineInterface`
+|Reserved interface
+|Declares `int execute(String[] arguments)` only. No implementation, parser, or launcher exists.
+|`resources/documenthelper/pdf_numeric_compat.rb`
+|PDF integration adapter
+|Prepends a Ruby module to `Prawn::Document` to serialize selected SVG text spacing/scaling operands as PDF decimal numbers.
+|===
+
+[plantuml, class-design, svg]
+----
+@startuml
+skinparam classAttributeIconSize 0
+class DocumentHelper {
+  - DocumentHelper()
+  + {static} main(args : String[]) : void
+}
+class JFrame <<Swing>>
+class DocumentHelperFrame {
+  - document : JTextField
+  - output : JTextField
+  - html : JCheckBox
+  - pdf : JCheckBox
+  - generate : JButton
+  - status : JLabel
+  - inputs : List<JComponent>
+  + DocumentHelperFrame()
+  - chooseDocument() : void
+  - chooseOutput() : void
+  - generate() : void
+  - showDetails(title : String, message : String, type : int) : void
+}
+class ConversionRequest <<record>> {
+  + document() : Path
+  + outputDirectory() : Path
+  + html() : boolean
+  + pdf() : boolean
+  + outputFile(extension : String) : Path
+}
+class DocumentGenerationService {
+  + generate(request : ConversionRequest) : Result
+  - convert(asciidoctor, request, work, backend, extension, diagnostics) : void
+}
+class "DocumentGenerationService.Result" as Result <<record>> {
+  + files() : List<Path>
+  + diagnostics() : List<String>
+}
+class "anonymous SwingWorker<Result, Void>" as Worker {
+  # doInBackground() : Result
+  # done() : void
+}
+class Asciidoctor <<library>>
+interface CommandLineInterface {
+  + execute(arguments : String[]) : int
+}
+JFrame <|-- DocumentHelperFrame
+DocumentHelper ..> DocumentHelperFrame : creates
+DocumentHelperFrame ..> ConversionRequest : constructs
+DocumentHelperFrame ..> Worker : creates per job
+Worker ..> DocumentGenerationService : constructs / invokes
+DocumentGenerationService ..> ConversionRequest : consumes
+DocumentGenerationService ..> Asciidoctor : creates / closes per job
+DocumentGenerationService +-- Result : nested type
+DocumentGenerationService ..> Result : returns
+Worker ..> Result : displays
+@enduml
+----
+
+The diagram shows principal fields and operations; Swing layout and chooser helpers are omitted.
+The nested result is a type relationship, not a long-lived result owned by a service instance.
+The frame creates a new service for each job; the service retains no renderer or mutable state between calls.
+
+=== Request invariants and output naming
+
+The compact constructor of `ConversionRequest` requires non-null paths and converts both to normalized absolute paths.
+The input must be a readable regular file with an `.adoc` or `.asciidoc` suffix, checked without case sensitivity.
+At least one format must be selected.
+If the output path exists, it must be a directory; output writability and directory creation are checked later through filesystem operations.
+
+`outputFile(extension)` preserves the source basename and replaces its final suffix.
+For example, `guide.v2.adoc` produces `guide.v2.html` and `guide.v2.pdf` in the selected output directory.
+Relative request paths resolve against the process working directory at construction time; includes and diagram references resolve from the entry document's parent during conversion.
+
+== User workflow and thread interaction
+
+Both output formats are selected initially.
+Choosing a source file defaults an empty output field to an `output` subdirectory beside the source.
+The browse dialogs use the nearest existing directory of the current field value when possible.
+
+[plantuml, gui-interaction, svg]
+----
+@startuml
+actor User
+participant "DocumentHelperFrame\nEDT" as Frame
+participant "ConversionRequest" as Request
+participant "SwingWorker\nbackground thread" as Worker
+participant "DocumentGenerationService" as Service
+User -> Frame : click Generate Document
+Frame -> Frame : check nonblank path fields
+Frame -> Request : construct and validate
+alt invalid selection
+  Frame -> User : warning dialog; return
+else valid selection
+  opt selected destination files already exist
+    Frame -> User : ask to replace existing files
+    User --> Frame : yes / no
+    note over Frame : A no answer returns without starting a job.
+  end
+  opt user proceeds
+    Frame -> Frame : disable inputs; set generating status
+    Frame -> Worker : execute()
+    Worker -> Service : new service; generate(request)
+    Service --> Worker : Result or exception
+    Worker -> Frame : done() callback on EDT
+    Frame -> Frame : enable inputs; get worker outcome
+    alt success
+      Frame -> User : paths and optional diagnostics
+    else execution failure
+      Frame -> User : error details; completed format may remain
+    else interrupted while obtaining result
+      Frame -> Frame : restore interrupt flag; update status
+    end
+  end
+end
+@enduml
+----
+
+File selection, request validation, overwrite checks, and dialog updates run on the EDT.
+Rendering runs in `SwingWorker.doInBackground()` so conversion does not block Swing event handling.
+`done()` re-enables the controls before reading and displaying the outcome.
+Disabling the input controls prevents a second conversion from this frame while one is running.
+There is no cancellation button, progress percentage, streaming diagnostic display, or application-level job queue.
+
+== Rendering lifecycle and interactions
+
+[plantuml, rendering-interaction, svg]
+----
+@startuml
+participant "Caller / SwingWorker" as Caller
+participant DocumentGenerationService as Service
+participant "Local filesystem" as FS
+participant "AsciidoctorJ / JRuby" as Engine
+participant "Diagram / PlantUML" as Diagram
+Caller -> Service : generate(request)
+Service -> FS : create output directory and .documenthelper-* workspace
+Service -> Engine : Factory.create(); register log handler
+Service -> Engine : require asciidoctor-diagram
+opt PDF requested
+  Service -> Engine : require asciidoctor-pdf
+  Service -> Engine : require documenthelper/pdf_numeric_compat
+end
+loop requested formats: HTML first, then PDF
+  Service -> Service : configure attributes and staged destination
+  Service -> Engine : convertFile(source, options)
+  Engine -> FS : read source, includes, images, diagram files
+  opt document contains PlantUML
+    Engine -> Diagram : render referenced diagram
+    Diagram -> FS : write images/cache into workspace
+  end
+  Engine -> Service : WARN / ERROR / FATAL log callbacks
+  Engine -> FS : write staged document.html or document.pdf
+  Engine --> Service : conversion returns
+  Service -> Service : check new ERROR/FATAL and staged file
+  alt output accepted
+    Service -> FS : move staged file to final path (replace existing)
+    Service -> Service : append final path to generated list
+  else backend failed
+    Service -> Service : throw IOException; stop remaining formats
+  end
+end
+Service -> Engine : close via try-with-resources
+Service -> FS : finally: delete workspace tree, children first
+Service --> Caller : Result on success; exception on failure
+@enduml
+----
+
+An exception also closes an initialized renderer and enters workspace cleanup.
+No `Result` is returned after a failed backend, even when a preceding format was published successfully.
+
+=== Renderer configuration
+
+[cols="2,4",options="header"]
+|===
+|Setting |Implemented behavior
+|Backend |`html5` for HTML; `pdf` for PDF. Each conversion reads the original AsciiDoc; PDF is not generated from HTML.
+|Base directory |Entry document parent directory.
+|Safe mode |`SafeMode.UNSAFE`, enabling trusted local includes and diagram processing.
+|Temporary output |Unique `.documenthelper-*` directory under the selected output directory.
+|Diagram resources |`imagesoutdir` and `outdir` point to the workspace; `diagram-cachedir` points to its `cache` subdirectory.
+|Common presentation |Default webfonts and icons disabled.
+|HTML |`data-uri` enabled and `linkcss` disabled to embed images and CSS.
+|Final publication |Staged file moved with `REPLACE_EXISTING`; atomic move is not requested.
+|===
+
+The diagram library is loaded for every job, even if the source contains no diagrams.
+The PDF library and compatibility adapter load only when PDF is requested, before either selected format is converted.
+A fresh Asciidoctor/JRuby runtime is created and closed for each generation call; there is no renderer pool or persistent diagram cache.
+
+=== Diagnostics, failure, and cleanup
+
+The log handler collects only `WARN`, `ERROR`, and `FATAL`, formatted as severity-prefixed strings.
+Warnings permit publication and appear in the successful result.
+After each conversion, the service checks diagnostics added during that backend call and requires a regular staged output file.
+An `ERROR` or `FATAL` in that range, or a missing staged file, causes an `IOException` containing accumulated diagnostics.
+Renderer and filesystem exceptions can also propagate directly to the worker.
+
+Overwrite consent belongs to the GUI; direct service callers get replacement behavior without a prompt.
+There is no transaction across formats: if HTML succeeds and PDF fails, the new HTML remains and any earlier PDF destination may remain unchanged.
+A failure does not roll back published files.
+
+The `finally` block walks the workspace in reverse path order and deletes its contents before the directory.
+If cleanup throws `IOException`, the service suppresses that cleanup failure and registers the workspace directory with `deleteOnExit()`.
+That fallback is not recursive, so locked files and their directory may remain; no cleanup diagnostic is returned.
+Directory/workspace creation occurs before the renderer's try/finally, so a failure during that initial setup has no renderer lifecycle to close.
+
+=== PDF numeric compatibility adapter
+
+The bundled Ruby resource addresses SVG text spacing emitted through Prawn/prawn-svg.
+Its source comment identifies prawn-svg 0.34.2 and notes that tiny floating-point values can produce scientific notation in PDF content streams, causing Acrobat rendering to stop.
+
+`DocumentHelper::PdfNumericCompat#add_content` matches a complete numeric operand in exponential notation followed by `Tc` or `Tz`.
+It serializes the number through `PDF::Core.real`, then delegates with `super`.
+`Prawn::Document.prepend` installs the override in the per-job Ruby runtime after the PDF library is loaded.
+This is a targeted integration patch, not a general PDF postprocessing step.
+
+== Build and deployment design
+
+The Maven artifact is `com.documenthelper:DocumentHelper:1.0.0-SNAPSHOT`, compiled with release 21 and UTF-8 source encoding.
+
+[cols="3,1,3",options="header"]
+|===
+|Declared dependency |Version |Purpose
+|`org.asciidoctor:asciidoctorj` |3.0.1 |Java API and Ruby processor integration
+|`org.asciidoctor:asciidoctorj-pdf` |2.3.23 |PDF backend
+|`org.asciidoctor:asciidoctorj-diagram` |3.0.1 |Diagram extension
+|`org.asciidoctor:asciidoctorj-diagram-plantuml` |1.2025.3 |PlantUML support
+|`org.junit.jupiter:junit-jupiter` |5.11.4 |Tests only
+|===
+
+These are versions declared in the inspected POM, not recommendations for future upgrades.
+The compiler plugin is 3.13.0, Surefire 3.5.2, JAR plugin 3.4.2, and dependency plugin 3.8.1.
+
+[plantuml, deployment, svg]
+----
+@startuml
+node "Local Windows machine" {
+  artifact "target/DocumentHelper.jar\nMain-Class: com.documenthelper.DocumentHelper" as App
+  folder "target/lib" {
+    artifact "Runtime dependency JARs\nAsciidoctorJ, JRuby, PDF, Diagram, PlantUML..." as Libs
+  }
+  node "Installed Java 21 runtime" as JVM
+  artifact "Installed Graphviz / dot.exe" as Dot
+  folder "Trusted source documents" as Sources
+  folder "Selected output directory" as Outputs
+  App --> Libs : manifest Class-Path: lib/
+  JVM --> App : java -jar
+  Libs ..> Dot : diagram layout when needed
+  App ..> Sources : read
+  App ..> Outputs : write
+}
+@enduml
+----
+
+`mvn package` creates `target/DocumentHelper.jar` and copies runtime dependencies into `target/lib/`.
+The JAR manifest specifies the main class and the relative library classpath.
+The application uses separate dependency JARs, preserving JRuby/RubyGem resources without shading.
+Keep the JAR and `lib` directory together when distributing the build.
+Launch with `java -jar target/DocumentHelper.jar` from the Maven project directory.
+See link:../../docs/Notes/DocumentHelperUsage.adoc[build and usage instructions].
+
+A Windows installer, bundled Java runtime, and bundled Graphviz are deferred.
+The current deployment requires a suitable installed runtime and Graphviz configuration.
+
+== Design consequences and limits
+
+* Package boundaries keep conversion logic reusable without Swing, although the GUI depends on the concrete service.
+* Immutable request/result records make the background handoff explicit; the renderer and diagnostic lists remain local to one job.
+* Per-job renderer initialization simplifies ownership and shutdown but incurs startup cost on each generation.
+* Sequential rendering simplifies failure handling and resource use but provides no all-or-nothing publication guarantee.
+* Temporary diagram output avoids persistent generated assets beside the sources; cleanup failures can leave workspace files.
+* HTML embeds ordinary images and CSS and disables default webfonts. Arbitrary remote references in source content can still prevent fully offline delivery.
+* UNSAFE conversion is intended for trusted local documents. There is no application sandbox, include-path restriction, or source trust validation.
+* HTML styling and PDF themes are separate backend concerns. No application-level theme selection is implemented.
+* The CLI contract is reserved for future work. A future implementation can call the service without opening Swing, but that launch path does not exist today.
+
+== Existing verification and remaining coverage
+
+`DocumentGenerationServiceTest` contains three JUnit tests:
+
+. A real HTML/PDF conversion with a relative include, PNG, external PlantUML sequence diagram, and source/output paths containing spaces. It checks embedded HTML images and CSS, included text, absence of active default Google Fonts references, a PDF signature, an empty diagnostics list, workspace removal, and absence of a source-side `.asciidoctor` directory.
+. A PDF regression fixture with SVG text spacing. It checks emitted content for decimal `Tc` operands and rejects exponential `Tc`/`Tz` operands that Acrobat cannot handle.
+. Request validation for a missing input and for no selected formats.
+
+These tests do not establish complete visual PDF correctness, complete offline independence for arbitrary content, or Graphviz availability for every layout.
+There are no automated Swing interaction tests in the inspected source tree.
+Overwrite rejection, partial publication on backend failure, missing Graphviz, invalid diagrams, locked-file cleanup, and packaged execution on a clean Windows machine remain useful validation scenarios.
+
+== Source map
+
+Paths below are relative to the repository root:
+
+* `src/Java/DocumentHelperApp/pom.xml`: build, dependencies, packaging.
+* `src/Java/DocumentHelperApp/src/main/java/com/documenthelper/DocumentHelper.java`: bootstrap.
+* `src/Java/DocumentHelperApp/src/main/java/com/documenthelper/gui/DocumentHelperFrame.java`: desktop workflow and worker.
+* `src/Java/DocumentHelperApp/src/main/java/com/documenthelper/core/ConversionRequest.java`: request invariants and output naming.
+* `src/Java/DocumentHelperApp/src/main/java/com/documenthelper/rendering/DocumentGenerationService.java`: rendering lifecycle and result record.
+* `src/Java/DocumentHelperApp/src/main/java/com/documenthelper/cli/CommandLineInterface.java`: deferred CLI boundary.
+* `src/Java/DocumentHelperApp/src/main/resources/documenthelper/pdf_numeric_compat.rb`: PDF numeric adapter.
+* `src/Java/DocumentHelperApp/src/test/java/com/documenthelper/rendering/DocumentGenerationServiceTest.java`: integration and regression tests.
