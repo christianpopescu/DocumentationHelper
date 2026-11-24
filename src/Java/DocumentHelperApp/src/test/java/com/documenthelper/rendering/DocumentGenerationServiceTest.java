@@ -1,6 +1,7 @@
 package com.documenthelper.rendering;
 
 import com.documenthelper.core.ConversionRequest;
+import com.documenthelper.core.ConversionRequest.PdfPageSize;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -14,6 +15,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DocumentGenerationServiceTest {
     @TempDir Path directory;
+
+    @Test
+    void plantUmlOptionIsAvailableOnApplicationClasspath() throws Exception {
+        assertNotNull(Class.forName("net.sourceforge.plantuml.Option"));
+    }
 
     @Test
     void generatesHtmlAndPdfWithRelativeResourcesAndEmbeddedImages() throws Exception {
@@ -78,6 +84,23 @@ class DocumentGenerationServiceTest {
         assertTrue(Pattern.compile("(?m)^-?[0-9.]+ Tc$").matcher(pdf).find());
         assertFalse(Pattern.compile("(?m)^[-+0-9.]+[eE][-+]?[0-9]+ T[cz]$").matcher(pdf).find(),
                 "PDF text spacing/scaling must not use scientific notation; Acrobat stops rendering the diagram.");
+    }
+
+    @Test
+    void usesSelectedPdfPageSize() throws Exception {
+        Path document = Files.writeString(directory.resolve("example.adoc"),
+                "= Example\n:pdf-page-size: Letter\n\nPage size test.\n");
+        var service = new DocumentGenerationService();
+        var a4 = new ConversionRequest(document, directory.resolve("a4"), false, true, PdfPageSize.A4);
+        var a3 = new ConversionRequest(document, directory.resolve("a3"), false, true, PdfPageSize.A3);
+
+        service.generate(a4);
+        service.generate(a3);
+
+        String a4Pdf = Files.readString(a4.outputFile("pdf"), StandardCharsets.ISO_8859_1);
+        String a3Pdf = Files.readString(a3.outputFile("pdf"), StandardCharsets.ISO_8859_1);
+        assertTrue(a4Pdf.contains("/MediaBox [0 0 595.28 841.89]"));
+        assertTrue(a3Pdf.contains("/MediaBox [0 0 841.89 1190.55]"));
     }
 
     @Test

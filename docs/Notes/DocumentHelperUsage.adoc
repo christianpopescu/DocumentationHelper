@@ -18,6 +18,7 @@ java -jar target/DocumentHelper.jar
 ----
 
 The Maven project and its sources are located in `src/Java/DocumentHelperApp`.
+Maven downloads PlantUML as a project dependency; a separate PlantUML installation is not required.
 Keep that project's `target/DocumentHelper.jar` and `target/lib/` together when copying the application.
 Dependencies remain separate JARs to preserve the JRuby and RubyGem resources without shading them.
 A Windows installer, bundled runtime, and bundled Graphviz are not included in this first version.

@@ -5,8 +5,18 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Objects;
 
-public record ConversionRequest(Path document, Path outputDirectory, boolean html, boolean pdf) {
+public record ConversionRequest(Path document, Path outputDirectory, boolean html, boolean pdf,
+                                PdfPageSize pdfPageSize) {
+    public enum PdfPageSize {
+        DOCUMENT_DEFAULT, A4, A3
+    }
+
+    public ConversionRequest(Path document, Path outputDirectory, boolean html, boolean pdf) {
+        this(document, outputDirectory, html, pdf, PdfPageSize.DOCUMENT_DEFAULT);
+    }
+
     public ConversionRequest {
+        Objects.requireNonNull(pdfPageSize);
         document = Objects.requireNonNull(document).toAbsolutePath().normalize();
         outputDirectory = Objects.requireNonNull(outputDirectory).toAbsolutePath().normalize();
         if (!Files.isRegularFile(document) || !Files.isReadable(document)) {

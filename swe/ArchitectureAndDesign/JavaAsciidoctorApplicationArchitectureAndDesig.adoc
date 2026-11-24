@@ -51,7 +51,7 @@ Service --> Output : stage / replace / clean up
 ----
 
 The CLI box has no runtime connection: `main(String[])` always starts Swing and does not dispatch arguments.
-PlantUML is supplied through the Diagram integration dependency; Graphviz remains an external executable, normally discovered through the environment.
+PlantUML is supplied by the Diagram integration and as a matching direct Maven dependency; Graphviz remains an external executable, normally discovered through the environment.
 The service contains no explicit Graphviz installation or discovery logic.
 
 == Packages, classes, and responsibilities
@@ -309,6 +309,7 @@ The Maven artifact is `com.documenthelper:DocumentHelper:1.0.0-SNAPSHOT`, compil
 |`org.asciidoctor:asciidoctorj-pdf` |2.3.23 |PDF backend
 |`org.asciidoctor:asciidoctorj-diagram` |3.0.1 |Diagram extension
 |`org.asciidoctor:asciidoctorj-diagram-plantuml` |1.2025.3 |PlantUML support
+|`net.sourceforge.plantuml:plantuml` |1.2025.3 |PlantUML classes on the application classpath
 |`org.junit.jupiter:junit-jupiter` |5.11.4 |Tests only
 |===
 

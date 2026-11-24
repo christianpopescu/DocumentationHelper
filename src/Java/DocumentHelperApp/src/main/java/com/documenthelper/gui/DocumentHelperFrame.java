@@ -1,6 +1,7 @@
 package com.documenthelper.gui;
 
 import com.documenthelper.core.ConversionRequest;
+import com.documenthelper.core.ConversionRequest.PdfPageSize;
 import com.documenthelper.rendering.DocumentGenerationService;
 
 import javax.swing.*;
@@ -17,6 +18,7 @@ public final class DocumentHelperFrame extends JFrame {
     private final JTextField output = new JTextField(42);
     private final JCheckBox html = new JCheckBox("HTML", true);
     private final JCheckBox pdf = new JCheckBox("PDF", true);
+    private final JCheckBox a3 = new JCheckBox("A3");
     private final JButton generate = new JButton("Generate Document");
     private final JLabel status = new JLabel("Select an AsciiDoc document and an output folder.");
     private final List<JComponent> inputs = new ArrayList<>();
@@ -28,10 +30,17 @@ public final class DocumentHelperFrame extends JFrame {
         form.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         addPathRow(form, 0, "Document path:", document, this::chooseDocument);
         addPathRow(form, 1, "Output path:", output, this::chooseOutput);
-        JPanel formats = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        formats.add(html);
-        formats.add(Box.createHorizontalStrut(18));
-        formats.add(pdf);
+        JPanel formats = new JPanel(new GridBagLayout());
+        GridBagConstraints htmlPosition = new GridBagConstraints();
+        htmlPosition.insets = new Insets(0, 0, 0, 18);
+        formats.add(html, htmlPosition);
+        GridBagConstraints pdfPosition = new GridBagConstraints();
+        pdfPosition.gridx = 1;
+        pdfPosition.gridy = 0;
+        pdfPosition.anchor = GridBagConstraints.WEST;
+        formats.add(pdf, pdfPosition);
+        pdfPosition.gridy = 1;
+        formats.add(a3, pdfPosition);
         GridBagConstraints c = constraints(1, 2);
         form.add(formats, c);
         c = constraints(1, 3);
@@ -42,7 +51,9 @@ public final class DocumentHelperFrame extends JFrame {
         form.add(status, c);
         inputs.add(html);
         inputs.add(pdf);
+        inputs.add(a3);
         inputs.add(generate);
+        pdf.addItemListener(event -> a3.setEnabled(pdf.isSelected()));
         generate.addActionListener(event -> generate());
         getRootPane().setDefaultButton(generate);
         setContentPane(form);
@@ -120,7 +131,8 @@ public final class DocumentHelperFrame extends JFrame {
                 throw new IllegalArgumentException("Select both an input document and an output folder.");
             }
             request = new ConversionRequest(Path.of(document.getText().strip()),
-                    Path.of(output.getText().strip()), html.isSelected(), pdf.isSelected());
+                    Path.of(output.getText().strip()), html.isSelected(), pdf.isSelected(),
+                    a3.isSelected() ? PdfPageSize.A3 : PdfPageSize.A4);
         } catch (RuntimeException failure) {
             JOptionPane.showMessageDialog(this, failure.getMessage(), "Invalid selection", JOptionPane.WARNING_MESSAGE);
             return;
@@ -143,6 +155,7 @@ public final class DocumentHelperFrame extends JFrame {
             @Override
             protected void done() {
                 inputs.forEach(input -> input.setEnabled(true));
+                a3.setEnabled(pdf.isSelected());
                 try {
                     var result = get();
                     status.setText(result.diagnostics().isEmpty() ? "Document generated." : "Document generated with diagnostics.");

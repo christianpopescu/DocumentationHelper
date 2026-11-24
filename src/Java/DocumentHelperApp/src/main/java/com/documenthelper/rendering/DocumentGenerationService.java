@@ -1,6 +1,7 @@
 package com.documenthelper.rendering;
 
 import com.documenthelper.core.ConversionRequest;
+import com.documenthelper.core.ConversionRequest.PdfPageSize;
 import org.asciidoctor.Asciidoctor;
 import org.asciidoctor.Attributes;
 import org.asciidoctor.Options;
@@ -72,6 +73,8 @@ public final class DocumentGenerationService {
         if (backend.equals("html5")) {
             attributes.attribute("data-uri", "");
             attributes.attribute("linkcss", false);
+        } else if (request.pdfPageSize() != PdfPageSize.DOCUMENT_DEFAULT) {
+            attributes.attribute("pdf-page-size", request.pdfPageSize().name());
         }
         Path staged = work.resolve("document." + extension);
         int diagnosticStart = diagnostics.size();
